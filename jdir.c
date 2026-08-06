@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <stdbool.h>
-//#include <string.h>
+
 
 // This code is published under GPL 3.0, see LICENSE for details
 
@@ -13,24 +13,25 @@
 -Columns                                            -----
     -name                                           DONE!
     -filetype                                       DONE!
-    -rwx (global? owner?)                           DONE!
+    -rwx (global? owner?)                           DONE? Works, need to understand why
     -formatting (random \n after .steam items)      DONE! fixed itself?
 
 -If no args, pwd and check that                     DONE!
--get d_name, concatinate if too long (15 chars?)    DONE!
+-get d_name, concatinate if too long (15 chars?)    DONE! replaced by dynamic sizing
 -sudo & error handling for that
--dynamic column sizing -- should be in own library? DONE! holy fuck
+-dynamic column sizing -- should be in own library? DONE! holy fuck 
     -find min size (15)                             DONE!
-    -find longest name, size based on longest       DONE!
+    -find longest name, size based on longest       DONE! stat would help with a lot of this
     -should just be verbose option?                 NO!
--flags for  // READ UP ON POSIX COMPLIANCE
+
+-flags for  // READ UP ON POSIX COMPLIANCE          Maybe no flags?
     - -a
         -hidden files, default to . files hidden
     - -i (info)
-        -size in bytes, kB, mB, gB
+        -size in bytes, kB, mB, gB                  Should be in base?
+
+-replace as much as possible with stat -- allows for better error checking, more uniform code
 */
-
-
 
  struct entries {
     char * name;
@@ -59,7 +60,7 @@ void print(int length, struct entries * entry, int count)
     }
 }
 
-char * chkarg(const char * arg) // need to check if flag too
+char * chkarg(const char * arg) // need to check if dir exists too
 {
     char * cd[PATH_MAX];
     if (arg == NULL)
@@ -68,6 +69,7 @@ char * chkarg(const char * arg) // need to check if flag too
         //printf("%s", cd);
         return *cd;
     } 
+    //need to use stat and mode_t
     else
     {
         return (char *)arg;
@@ -138,33 +140,27 @@ int checkstr(char name[])
     return len;
 }
 
-char * checkperms (char * name, struct dirent * dir )
+char *checkperms(const char *path)
 {
-    char * tname = name;
     struct stat fileStat;
-        // Get file stats
-    if (stat(tname, &fileStat) == -1)
-    {
-        perror("stat");
+
+    if (stat(path, &fileStat) == -1) {
+        perror(path);
         return NULL;
     }
 
-    stat(tname, &fileStat); // Passes the valid address
-    mode_t mode = fileStat.st_mode;
+    char *perms = malloc(11);   // "-rwxrwxrwx" + '\0'
+    if (!perms)
+        return NULL;
 
-    //unsigned int * usr, * grp, * gbl = malloc(sizeof(unsigned int)); // see if this does nothing
-            
-    char * perms = malloc(13);
-    mode_to_string(mode, perms);
+    mode_to_string(fileStat.st_mode, perms);
     return perms;
 }
 
 
 int main(int argc, const char * argp[]) /* array of args, array of pointers pointing to args; [0] is program name */
 {
-    // printf("Opening Filestream...\n");
-
-    char * arg = chkarg(argp[1]);
+    const char * arg = chkarg(argp[1]);
 
     if (arg == NULL)
     {
@@ -174,7 +170,6 @@ int main(int argc, const char * argp[]) /* array of args, array of pointers poin
     else
     {
         // printf("Filestream Opened!\n");
-
     }
 
 
@@ -197,15 +192,17 @@ int main(int argc, const char * argp[]) /* array of args, array of pointers poin
     }
 
     int exit_state = closedir(dir);
-    dir = opendir(arg);
+    dir = opendir(arg); // close/reopen dir, only clean when I do this :/
 
-    struct entries * entry = calloc(count, sizeof(struct entries));
+    struct entries * entry = calloc(count, sizeof(struct entries)); //create array of entry structs
 
-    while((de = readdir(dir)) != NULL)
+    while((de = readdir(dir)) != NULL) 
     {
-        entry[set] = (struct entries){de->d_name, checktype(de->d_type), checkperms(arg, de)};
-        //entry[set].perms = checkperms(arg, de);
-       // entry[set].type = checktype(de->d_type); // fill out struct for each directory entry
+        char path[PATH_MAX];
+
+        snprintf(path, sizeof(path), "%s/%s", arg, de->d_name);
+
+        entry[set] = (struct entries){de->d_name, checktype(de->d_type), checkperms(path)};
 
         len = checkstr(de->d_name); // by-reference? don't want to print (de->) directly
         if (len > maxlen)
